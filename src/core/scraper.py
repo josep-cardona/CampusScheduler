@@ -37,9 +37,9 @@ class ScheduleScraper:
         """Finds the first week that contains scheduled classes."""
         print("Searching for the first week with classes...")
         while self.page.get_by_text("No hi ha esdeveniments per").is_visible():
-            self.page.get_by_role("button", name="SegÃ¼ent").click()
+            self.page.query_selector(".fc-next-button").click()
             time.sleep(0.5)
-        time.sleep(3) # Wait for content to be fully loaded
+        time.sleep(1) # Wait for content to be fully loaded
         print("Found a week with classes.")
 
     def get_schedule_rows(self) -> list:
