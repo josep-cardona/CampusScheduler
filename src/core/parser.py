@@ -42,6 +42,21 @@ def parse_schedule_rows(rows: list) -> List[ScheduledLecture]:
 
         # Parse start and end time
         start_str, end_str = class_time.split(" - ")
+        if current_day_element:
+            date_str = current_day_element.get_attribute("data-date")
+            start_time = datetime.strptime(f"{date_str} {start_str}", "%Y-%m-%d %H:%M")
+            end_time = datetime.strptime(f"{date_str} {end_str}", "%Y-%m-%d %H:%M")
+
+            scheduled_lecture = ScheduledLecture(
+                course_id=int(course_id_str),
+                course_name=course_name,
+                classroom=classroom,
+                group_num=group_num,
+                lecture_type=lecture_type,
+                start_time=start_time,
+                end_time=end_time
+            )
+            classes.append(scheduled_lecture)
         else:
             raise ValueError("Lecture row encountered without a preceding day header (fc-list-day). Input data may be malformed.")
     return classes
