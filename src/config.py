@@ -20,7 +20,10 @@ NAVIGATION_TIMEOUT = 5000  # milliseconds
 
 # Centralize the permissions we are requesting from the user.
 # For this test, we only need to read events.
-SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+]
 
 
 # Build a path relative to the project's root directory
@@ -36,3 +39,6 @@ CLIENT_SECRET_PATH = os.path.join(CREDENTIALS_DIR, "client_secret.json")
 # Define the full path for storing the user's token.
 # This file will be created after the first successful login.
 TOKEN_PATH = os.path.join(CREDENTIALS_DIR, "token.json")
+
+# General Settings
+TIMEZONE = "Europe/Madrid"

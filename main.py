@@ -14,6 +14,32 @@ def main():
     calendar = CalendarClient()
     print("Successfully connected.")
 
+    target_calendar_id = "primary"
+    all_calendars = calendar.get_calendar_list()
+    if all_calendars:
+        print("\nPlease choose a calendar to sync your schedule to:")
+        for i, cal in enumerate(all_calendars):
+            print(f"  [{i + 1}] {cal['summary']}")
+
+        while True:
+            try:
+                choice = int(
+                    input(
+                        f"Enter number (1-{len(all_calendars)}), or press Enter for primary: "
+                    )
+                    or 1
+                )
+                if 1 <= choice <= len(all_calendars):
+                    target_calendar_id = all_calendars[choice - 1]["id"]
+                    print(
+                        f"Selected calendar: {all_calendars[choice - 1]['summary']}\n"
+                    )
+                    break
+                else:
+                    print("Invalid number, please try again.")
+            except ValueError:
+                print("Invalid input, please enter a number.")
+
     with sync_playwright() as p:
         scraper = ScheduleScraper(p)
         scheduled_classes = None
@@ -40,7 +66,7 @@ def main():
             print("\nBrowser closed.")
 
     assert scheduled_classes is not None
-    calendar.add_lectures_to_calendar(scheduled_classes)
+    calendar.delete_lectures_from_calendar(scheduled_classes, target_calendar_id)
 
 
 if __name__ == "__main__":

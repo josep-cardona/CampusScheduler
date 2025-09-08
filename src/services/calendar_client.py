@@ -72,6 +72,24 @@ class CalendarClient:
 
         return creds
 
+    def _batch_callback(self, request_id, response, exception):
+        """
+        Handles responses for each request in a batch.
+        It now correctly handles empty responses from delete operations.
+        """
+        if exception:
+            print(f"Request ID '{request_id}' failed: {exception}")
+        else:
+            # A successful 'delete' operation returns an empty response.
+            # A successful 'insert' or 'update' returns the event resource dictionary.
+            if response:
+                # This block will only run for inserts and updates
+                print(f"Request ID '{request_id}' (Create/Update) was successful.")
+                print(f"  Event Link: {response.get('htmlLink')}")
+            else:
+                # This block will run for deletes
+                print(f"Request ID '{request_id}' (Delete) was successful.")
+
     def find_events_by_time_and_summary(
         self,
         start_time: datetime,
@@ -94,7 +112,7 @@ class CalendarClient:
 
         try:
             # Make time
-            local_tz = pytz.timezone("Europe/Madrid")
+            local_tz = pytz.timezone(config.TIMEZONE)
             aware_start_time = local_tz.localize(start_time)
             aware_end_time = local_tz.localize(end_time)
 
@@ -132,114 +150,187 @@ class CalendarClient:
         lectures: Union[ScheduledLecture, List[ScheduledLecture]],
         calendar_id: str = "primary",
     ):
+        """Deletes Google Calendar events from ScheduledLecture objects."""
+        batch = self.service.new_batch_http_request(callback=self._batch_callback)
+
+        if not lectures:
+            print("No lectures to delete")
+            return
+
         if not isinstance(lectures, list):
             lectures = [lectures]
 
-        for lecture in lectures:
-            try:
-                summary = f"{lecture.course_id} - {lecture.course_name} ({lecture.lecture_type.value[0]})"
+        min_start_time = min(lec.start_time for lec in lectures)
+        max_end_time = max(lec.end_time for lec in lectures)
+        local_tz = pytz.timezone(config.TIMEZONE)
+        aware_min_start = local_tz.localize(min_start_time)
+        aware_max_end = local_tz.localize(max_end_time)
 
-                old_events = self.find_events_by_time_and_summary(
-                    start_time=lecture.start_time,
-                    end_time=lecture.end_time,
-                    summary=summary,
-                    calendar_id=calendar_id,
+        # Check for existing events
+        print(
+            f"Checking for existing events between {aware_min_start} and {aware_max_end}..."
+        )
+        try:
+            existing_events = (
+                self.service.events()
+                .list(
+                    calendarId=calendar_id,
+                    timeMin=aware_min_start.isoformat(),
+                    timeMax=aware_max_end.isoformat(),
+                    privateExtendedProperty=["managedBy=campusScheduler"],
+                    singleEvents=True,
+                )
+                .execute()
+                .get("items", [])
+            )
+        except HttpError as error:
+            print(f"An error occurred during event listing: {error}")
+        print(
+            f"Found {len(existing_events)} existing events managed by this scheduler."
+        )
+
+        for lecture in existing_events:
+            try:
+                request = self.service.events().delete(
+                    calendarId=calendar_id, eventId=lecture.get("id")
                 )
 
-                if len(old_events) > 0:
-                    print(f"Found {len(old_events)} events with the same information.")
-                    for old in old_events:
-                        self.service.events().delete(
-                            calendarId=calendar_id, eventId=old.get("id")
-                        ).execute()
+                batch.add(request, request_id=lecture.get("id"))
+
             except HttpError as error:
                 print(f"An error occurred: {error}")
+
+        try:
+            print("Executing batch request...")
+            batch.execute()
+            print("Batch execution complete.")
+        except HttpError as error:
+            print(f"An error occurred: {error}")
+
+    def _get_unique_event_id(self, lecture: ScheduledLecture) -> str:
+        """Creates a stable, unique identifier for a lecture event."""
+        # We use a timestamp to ensure uniqueness across different times
+        start_timestamp = int(lecture.start_time.timestamp())
+        return f"upfScheduler{lecture.course_id}g{lecture.group_num}t{start_timestamp}"
 
     def add_lectures_to_calendar(
         self,
         lectures: Union[ScheduledLecture, List[ScheduledLecture]],
         calendar_id: str = "primary",
-        auto_update: bool = True,
     ):
         """
-        Creates new Google Calendar events from one or more ScheduledLecture objects.
-        Accepts a single ScheduledLecture or a list of them.
+        Creates or updates Google Calendar events from ScheduledLecture objects.
+        The process is idempotent: it checks for an existing event using a unique ID
+        and updates it if found, otherwise it creates a new one.
         """
+        batch = self.service.new_batch_http_request(callback=self._batch_callback)
+
+        if not lectures:
+            print("No lectures to sync.")
+            return
+
         if not isinstance(lectures, list):
             lectures = [lectures]
 
-        for lecture in lectures:
-            try:
-                summary = f"{lecture.course_id} - {lecture.course_name} ({lecture.lecture_type.value[0]})"
+        # Extract the time window information
+        min_start_time = min(lec.start_time for lec in lectures)
+        max_end_time = max(lec.end_time for lec in lectures)
+        local_tz = pytz.timezone(config.TIMEZONE)
+        aware_min_start = local_tz.localize(min_start_time)
+        aware_max_end = local_tz.localize(max_end_time)
 
-                event = {
-                    "summary": summary,
-                    "location": lecture.classroom,
-                    "description": f"{lecture.lecture_type.value} - Group {lecture.group_num}",
-                    "start": {
-                        "dateTime": lecture.start_time.isoformat(),
-                        "timeZone": "Europe/Madrid",
-                    },
-                    "end": {
-                        "dateTime": lecture.end_time.isoformat(),
-                        "timeZone": "Europe/Madrid",
-                    },
-                }
-
-                old_events = self.find_events_by_time_and_summary(
-                    start_time=lecture.start_time,
-                    end_time=lecture.end_time,
-                    summary=summary,
-                    calendar_id=calendar_id,
-                )
-
-                if len(old_events) > 0:
-                    print(f"Found {len(old_events)} events with the same information.")
-                    if auto_update:
-                        print("Updating events...")
-                        for old in old_events:
-                            self.service.events().delete(
-                                calendarId=calendar_id, eventId=old.get("id")
-                            ).execute()
-
-                event = (
-                    self.service.events()
-                    .insert(calendarId=calendar_id, body=event)
-                    .execute()
-                )
-                print("Event created: %s" % (event.get("htmlLink")))
-            except HttpError as error:
-                print(f"An error occurred: {error}")
-
-    def list_user_calendars(self):
-        """
-        Prints the user's calendars from their calendar list.
-        """
-        print("Getting the list of user calendars...")
+        # Check for existing events
+        print(
+            f"Checking for existing events between {aware_min_start} and {aware_max_end}..."
+        )
         try:
-            calendar_list_result = self.service.calendarList().list().execute()
-            calendars = calendar_list_result.get("items", [])
-
-            if not calendars:
-                print("No calendars found.")
-                return
-
-            print("Your calendars:")
-            for calendar_item in calendars:
-                # Each item is a dictionary with details about the calendar
-                summary = calendar_item["summary"]
-                calendar_id = calendar_item["id"]
-                is_primary = calendar_item.get(
-                    "primary", False
-                )  # .get() is safer for optional fields
-                role = calendar_item["accessRole"]
-
-                print(f"- Summary: {summary}")
-                print(f"  ID: {calendar_id}")
-                print(f"  Access Role: {role}")
-                if is_primary:
-                    print("  (This is your primary calendar)")
-                print("-" * 20)
-
+            existing_events = (
+                self.service.events()
+                .list(
+                    calendarId=calendar_id,
+                    timeMin=aware_min_start.isoformat(),
+                    timeMax=aware_max_end.isoformat(),
+                    privateExtendedProperty="managedBy=campusScheduler",
+                    singleEvents=True,
+                )
+                .execute()
+                .get("items", [])
+            )
         except HttpError as error:
-            print(f"An error occurred: {error}")
+            print(f"An error occurred during event listing: {error}")
+        print(
+            f"Found {len(existing_events)} existing events managed by this scheduler."
+        )
+
+        # Create a lookup table
+        existing_events_map = {
+            event["extendedProperties"]["private"]["scheduler_id"]: event
+            for event in existing_events
+            if "extendedProperties" in event
+            and "private" in event["extendedProperties"]
+            and "scheduler_id" in event["extendedProperties"]["private"]
+        }
+
+        for lecture in lectures:
+            unique_id = self._get_unique_event_id(lecture)
+
+            summary = f"{lecture.course_id} - {lecture.course_name} ({lecture.lecture_type.value[0]})"
+
+            event_body = {
+                "summary": summary,
+                "location": lecture.classroom,
+                "description": f"{lecture.lecture_type.value} - Group {lecture.group_num}",
+                "start": {
+                    "dateTime": lecture.start_time.isoformat(),
+                    "timeZone": config.TIMEZONE,
+                },
+                "end": {
+                    "dateTime": lecture.end_time.isoformat(),
+                    "timeZone": config.TIMEZONE,
+                },
+                "extendedProperties": {
+                    "private": {
+                        "scheduler_id": unique_id,
+                        "managedBy": "campusScheduler",
+                    }
+                },
+            }
+
+            existing_event = existing_events_map.get(unique_id)
+
+            if existing_event:
+                # If it exists, UPDATE it.
+                request = self.service.events().update(
+                    calendarId=calendar_id,
+                    eventId=existing_event["id"],
+                    body=event_body,
+                )
+            else:
+                # If it does not exist, INSERT it.
+                request = self.service.events().insert(
+                    calendarId=calendar_id, body=event_body
+                )
+
+            batch.add(request, request_id=unique_id)
+
+        # Run the batch request
+        try:
+            print("Executing batch request...")
+            batch.execute()
+            print("Batch execution complete.")
+        except HttpError as error:
+            print(f"An error occurred during batch execution: {error}")
+
+    def get_calendar_list(self):
+        """
+        Retrieves the list of all calendars the user has access to.
+        Returns a list of calendar resource dictionaries.
+        """
+        try:
+            calendar_list_result = (
+                self.service.calendarList().list(minAccessRole="writer").execute()
+            )
+            return calendar_list_result.get("items", [])
+        except HttpError as error:
+            print(f"An error occurred while fetching the calendar list: {error}")
+            return None  # Return None or an empty list to indicate failure
