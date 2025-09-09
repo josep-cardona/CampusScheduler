@@ -52,7 +52,7 @@ def main():
                 return
 
             scheduled_classes = parse_schedule_rows(
-                raw_rows, date(2025, 9, 20), date(2025, 9, 29)
+                raw_rows, date(2025, 9, 20), date(2025, 9, 25)
             )
 
             print(f"\nSuccessfully scraped {len(scheduled_classes)} classes.\n")
@@ -66,7 +66,7 @@ def main():
             print("\nBrowser closed.")
 
     assert scheduled_classes is not None
-    calendar.delete_lectures_from_calendar(scheduled_classes, target_calendar_id)
+    calendar.sync_lectures(scheduled_classes, target_calendar_id, only_delete=False)
 
 
 if __name__ == "__main__":
