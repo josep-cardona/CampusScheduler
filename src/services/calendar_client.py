@@ -1,5 +1,5 @@
 import os.path
-from datetime import date, datetime
+from datetime import datetime
 from typing import List, Union
 
 import pytz
@@ -203,7 +203,7 @@ class CalendarClient:
                 print(f"Successfully completed operation for ID '{item_id}'.")
 
     def _get_managed_events_in_range(
-        self, min_start_time: datetime, max_end_time: date, calendar_id: str
+        self, min_start_time: datetime, max_end_time: datetime, calendar_id: str
     ):
         local_tz = pytz.timezone(config.TIMEZONE)
         aware_min_start = local_tz.localize(min_start_time)
@@ -265,7 +265,7 @@ class CalendarClient:
         # --- EXECUTE WITH CONFIRMATION (THE DRY RUN) ---
         if to_create == 0 and to_update == 0 and to_delete == 0:
             print("\nCalendar is already up to date. No changes needed.")
-            return
+            return False
 
         print("\n--- SYNC PLAN ---")
         print(f"Create: {to_create} new events")
