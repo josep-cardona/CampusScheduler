@@ -208,3 +208,6 @@ __marimo__/
 
 # Repomix
 repomix-output.xml
+
+# Credentials and secrets
+/credentials/
