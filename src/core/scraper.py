@@ -59,7 +59,7 @@ class ScheduleScraper:
             self.navigate_to_schedule()
 
             # Go to beginning of month
-            start_month = start_date.strftime(format="%#m/%Y")
+            start_month = f"{start_date.strftime('%m').lstrip('0')}/{start_date.strftime('%Y')}"
             self.page.locator("#comboMesesAnyos").select_option(start_month)
 
             self.find_first_week_with_classes()
