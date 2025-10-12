@@ -279,7 +279,6 @@ class CalendarClient:
             )
             return None  # Return None to indicate failure
         except Exception as error:
-            raise error
             self.console.print(
                 f"[bold red]An unexpected error occurred during authentication: {error}[/bold red]"
             )

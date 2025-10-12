@@ -184,19 +184,19 @@ class ConfigManager:
 
     def validate_client_secret(self):
         if not Path(self.client_secret_path).exists():
-            raise ConfigurationError("Google Clout Client Secret not found.")
+            raise ConfigurationError("Google Cloud Client Secret not found.")
 
         try:
             with open(Path(self.client_secret_path), "r") as s:
                 secret_file = json.load(s)
         except json.JSONDecodeError:
             raise ConfigurationError(
-                f'Google Clout Client Secret file is corrupted or invalid JSON.\n Please delete "{self.client_secret_path}" and configure it again.'
+                f'Google Cloud Client Secret file is corrupted or invalid JSON.\n Please delete "{self.client_secret_path}" and configure it again.'
             )
 
         if not secret_file.get("installed"):
             raise ConfigurationError(
-                f'Google Clout Client Secret file is corrupted or invalid JSON.\n Please delete "{self.client_secret_path}" and configure it again.'
+                f'Google Cloud Client Secret file is corrupted or invalid JSON.\n Please delete "{self.client_secret_path}" and configure it again.'
             )
 
         required_keys = [
@@ -217,7 +217,7 @@ class ConfigManager:
 
         if missing_keys:
             raise ConfigurationError(
-                f'Google Clout Client Secret file is missing required keys: {", ".join(missing_keys)}.\n Please delete "{self.token_path}" and configure it again.'
+                f'Google Cloud Client Secret file is missing required keys: {", ".join(missing_keys)}.\n Please delete "{self.token_path}" and configure it again.'
             )
 
 
