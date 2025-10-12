@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import List
 
-from src.models.schedule import LectureType, ScheduledLecture
+from campsched.models.schedule import LectureType, ScheduledLecture
 
 # Map lecture type string to enum
 lecture_type_map = {
