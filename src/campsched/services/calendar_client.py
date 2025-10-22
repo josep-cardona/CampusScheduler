@@ -3,14 +3,18 @@ from datetime import datetime
 from typing import List, Union
 
 import pytz
+import typer
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from rich.console import Console
+from rich.table import Table
 
-from src import config
-from src.models.schedule import ScheduledLecture
+from campsched import config
+from campsched.config import ConfigManager
+from campsched.models.schedule import ScheduledLecture
 
 
 class CalendarClient:
@@ -20,11 +24,13 @@ class CalendarClient:
     Handles authentication and provides methods for calendar operations.
     """
 
-    def __init__(self):
+    def __init__(self, console: Console):
         """
         Initializes the CalendarClient by authenticating the user
         and building the API service object.
         """
+        self.console = console
+
         # Get valid user credentials
         self.credentials = self._get_credentials()
 
@@ -34,6 +40,68 @@ class CalendarClient:
 
         # Use credentials to build calendar service object
         self.service = build("calendar", "v3", credentials=self.credentials)
+
+    def delete_lectures(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        calendar_id: str,
+    ):
+        """
+        Deletes events created by CampusScheduler on the specified range.
+        """
+        with self.console.status(
+            "[bold yellow]🔍 Searching for events to delete...", spinner="dots"
+        ):
+            existing_events = self._get_managed_events_in_range(
+                start_date, end_date, calendar_id
+            )
+        if not existing_events:
+            self.console.print(
+                "[bold green]✅ No events managed by campsched found in this date range. Nothing to do![/bold green]"
+            )
+            raise typer.Exit()
+
+        self.console.print(f"Found {len(existing_events)} events to delete.")
+
+        existing_events_map = {}
+        for event in existing_events:
+            scheduler_id = (
+                event.get("extendedProperties", {})
+                .get("private", {})
+                .get("scheduler_id")
+            )
+            if scheduler_id:
+                existing_events_map[scheduler_id] = event
+
+        batch = self.service.new_batch_http_request(callback=self._batch_callback)
+
+        # --- PREPARE DELETIONS (ORPHANED EVENTS) ---
+        ops_to_delete = 0
+        for orphaned_event in existing_events_map.values():
+            request = self.service.events().delete(
+                calendarId=calendar_id, eventId=orphaned_event["id"]
+            )
+            batch.add(request, request_id=f"delete_{orphaned_event.get('id')}")
+            ops_to_delete += 1
+
+        if not typer.confirm("Proceed with deletion?"):
+            self.console.print("[red]Aborted by user.[/red]")
+            raise typer.Exit()
+
+        try:
+            with self.console.status(
+                f"[bold red]🗑️ Deleting {len(existing_events)} events...",
+                spinner="earth",
+            ):
+                batch.execute()
+            self.console.print(
+                f"\n[bold green]✅ Successfully deleted {len(existing_events)} events from your calendar.[/bold green]"
+            )
+        except HttpError as error:
+            self.console.print(
+                f"[bold red] An error occurred during batch request: {error} [/bold red]"
+            )
 
     def sync_lectures(
         self,
@@ -45,12 +113,13 @@ class CalendarClient:
         Synchronizes a list of lectures with Google Calendar using a batch request.
         This is a full sync operation: it creates, updates, and deletes events as needed.
         """
+
         if not isinstance(lectures, list):
             lectures = [lectures]
 
         if not lectures:
-            print(
-                "No lectures to sync. If you expected lectures, the scraper might have found none in the given range."
+            self.console.print(
+                "[red] No lectures to sync. If you expected lectures, the scraper might have found none in the given range.[/red]"
             )
             return
 
@@ -58,13 +127,10 @@ class CalendarClient:
         min_start_time = min(lec.start_time for lec in lectures)
         max_end_time = max(lec.end_time for lec in lectures)
 
-        # Use the helper function we discussed to keep this clean
-        existing_events = self._get_managed_events_in_range(
-            min_start_time, max_end_time, calendar_id
-        )
-        print(
-            f"Found {len(existing_events)} existing events managed by this scheduler in the target time window."
-        )
+        with self.console.status("🔍 Analyzing your Google Calendar..."):
+            existing_events = self._get_managed_events_in_range(
+                min_start_time, max_end_time, calendar_id
+            )
 
         existing_events_map = {}
         for event in existing_events:
@@ -117,10 +183,17 @@ class CalendarClient:
         )
         if should_execute:
             try:
-                batch.execute()
-                print("Batch sync complete.")
+                with self.console.status(
+                    "[bold green]Executing batch sync...", spinner="dots"
+                ):
+                    batch.execute()
+                self.console.print(
+                    "\n[bold green]✨ Sync complete! Your calendar is now up to date.[/bold green]"
+                )
             except HttpError as error:
-                print(f"An error occurred during batch request: {error}")
+                self.console.print(
+                    f"[bold red] An error occurred during batch request: {error} [/bold red]"
+                )
 
     def get_calendar_list(self):
         """
@@ -133,7 +206,9 @@ class CalendarClient:
             )
             return calendar_list_result.get("items", [])
         except HttpError as error:
-            print(f"An error occurred while fetching the calendar list: {error}")
+            self.console.print(
+                f"[bold red]An error occurred while fetching the calendar list: {error} [/bold red]"
+            )
             return None  # Return None or an empty list to indicate failure
 
     def _get_credentials(self) -> Credentials:
@@ -148,28 +223,64 @@ class CalendarClient:
 
         try:
             # Get credentials if they already exist
-            if os.path.exists(config.TOKEN_PATH):
+            if os.path.exists(ConfigManager().token_path):
+                ConfigManager().validate_token()
                 creds = Credentials.from_authorized_user_file(
-                    config.TOKEN_PATH, config.SCOPES
+                    ConfigManager().token_path, config.SCOPES
                 )
 
             if not creds or not creds.valid:
                 # Refresh credentials if possible
                 if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
-                else:
-                    # Run flow to get new credentials
+                    try:
+                        creds.refresh(Request())
+                    except Exception as refresh_error:
+                        print(f"Failed to refresh token: {refresh_error}")
+                        # If refresh fails, fall through to re-authentication
+                        creds = None  # Ensure we re-authenticate
+
+                if (
+                    not creds
+                ):  # This block will run for first-time auth or failed refresh
+                    ConfigManager().validate_client_secret()
                     flow = InstalledAppFlow.from_client_secrets_file(
-                        config.CLIENT_SECRET_PATH, config.SCOPES
+                        ConfigManager().client_secret_path, config.SCOPES
                     )
-                    creds = flow.run_local_server(port=0)
+
+                    # Make the manual authentication step very clear for the user.
+                    print("\n--- Google Authentication Required ---")
+                    print(
+                        "A browser window should open for you to log in and grant permissions."
+                    )
+                    print(
+                        "If it doesn't, please copy the URL printed below and open it manually in your browser."
+                    )
+                    print("------------------------------------\n")
+
+                    creds = flow.run_local_server(
+                        port=0
+                    )  # Use port=0 to find a free port
 
             # Save new credentials
-            with open(config.TOKEN_PATH, "w") as token:
+            with open(ConfigManager().token_path, "w") as token:
                 token.write(creds.to_json())
 
-        except HttpError as error:
-            print(f"An error occurred: {error}")
+        except FileNotFoundError:
+            self.console.print(
+                "\n[bold red]The 'client_secret.json' file was not found in the 'credentials' directory.[/bold red]"
+            )
+            self.console.print(
+                f"Please follow the setup instructions in the README.md to obtain this file from the Google Cloud Console and place it in: {ConfigManager().config_dir}\n"
+            )
+            self.console.print(
+                "[bold]If you don't want to use Google Calendar integration run: [yellow] campsched config --no-calendar [/yellow] [/bold]"
+            )
+            return None  # Return None to indicate failure
+        except Exception as error:
+            self.console.print(
+                f"[bold red]An unexpected error occurred during authentication: {error}[/bold red]"
+            )
+            return None
 
         return creds
 
@@ -191,16 +302,6 @@ class CalendarClient:
             print(
                 f"Operation '{operation_type}' for ID '{item_id}' failed: {exception}"
             )
-        else:
-            if operation_type == "delete":
-                print(f"Successfully deleted event '{item_id}'.")
-            elif operation_type == "sync":
-                print(
-                    f"Successfully synced (created/updated) event '{item_id}'. Link: {response.get('htmlLink')}"
-                )
-            else:
-                # Fallback for any other case
-                print(f"Successfully completed operation for ID '{item_id}'.")
 
     def _get_managed_events_in_range(
         self, min_start_time: datetime, max_end_time: datetime, calendar_id: str
@@ -210,9 +311,6 @@ class CalendarClient:
         aware_max_end = local_tz.localize(max_end_time)
 
         # Check for existing events
-        print(
-            f"Checking for existing events between {aware_min_start} and {aware_max_end}..."
-        )
         try:
             existing_events = (
                 self.service.events()
@@ -241,7 +339,7 @@ class CalendarClient:
         # (New helper)
         unique_id = self._get_unique_event_id(lecture)
         event_body = {
-            "summary": f"{lecture.course_id} - {lecture.course_name} ({lecture.lecture_type.value[0]})",
+            "summary": f"{lecture.course_name} - {lecture.lecture_type.value}",
             "location": lecture.classroom,
             "description": f"{lecture.lecture_type.value} - Group {lecture.group_num}",
             "start": {
@@ -264,19 +362,24 @@ class CalendarClient:
     def _confirm_sync_plan(self, to_create, to_update, to_delete) -> bool:
         # --- EXECUTE WITH CONFIRMATION (THE DRY RUN) ---
         if to_create == 0 and to_update == 0 and to_delete == 0:
-            print("\nCalendar is already up to date. No changes needed.")
+            self.console.print(
+                "\n[bold green]✅ Your calendar is already up to date. No changes needed.[/bold green]"
+            )
             return False
 
-        print("\n--- SYNC PLAN ---")
-        print(f"Create: {to_create} new events")
-        print(f"Update: {to_update} existing events")
-        print(f"Delete: {to_delete} orphaned events")
-        print("--------------------")
+        self.console.print()
+        table = Table(title="📊 Sync Plan", show_header=False, padding=(0, 2))
+        table.add_column(style="green")
+        table.add_column(style="bold")
+        table.add_column(style="cyan")
 
-        confirm = input("Proceed with these changes? (y/n): ").lower()
-        if confirm == "y":
-            print("Executing batch sync...")
-            return True
-        else:
-            print("Sync cancelled by user.")
+        table.add_row("Create ➕", f"{to_create}", "new events")
+        table.add_row("Update 🔄", f"{to_update}", "existing events")
+        table.add_row("Delete ➖", f"{to_delete}", "orphaned events")
+
+        self.console.print(table)
+
+        if not typer.confirm("Proceed with these changes?"):
+            self.console.print("[bold red]Sync cancelled by user.[/bold red]")
             return False
+        return True
