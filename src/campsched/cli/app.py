@@ -20,22 +20,14 @@ app = typer.Typer(pretty_exceptions_show_locals=False)
 console = Console()
 
 
-@app.command()
-def export(
-    ctx: typer.Context,
-    start_date: str = typer.Option(
-        None, "--start-date", "-s", help="Start date in DD-MM-YYYY format"
-    ),
-    end_date: str = typer.Option(
-        None, "--end-date", "-e", help="End date in DD-MM-YYYY format"
-    ),
-    output_file: str = typer.Option(
-        None, "--output", "-o", help="Name of the output file."
-    ),
+def _parse_and_validate_dates(
+    start_date: str, end_date: str, default_dates: bool = True
 ):
-    """
-    Exports your university schedule into a universal .ics calendar file. (no Google Calendar integration needed)
-    """
+    if not (start_date and end_date) and not default_dates:
+        raise typer.BadParameter(
+            "Provide both --start-date and --end-date for range delete"
+        )
+
     if not start_date:
         start_dt = date.today()
     else:
@@ -54,6 +46,26 @@ def export(
     if start_dt > end_dt:
         raise typer.BadParameter("start_date must be before or equal to end_date")
 
+    return (start_dt, end_dt)
+
+
+@app.command()
+def export(
+    ctx: typer.Context,
+    start_date: str = typer.Option(
+        None, "--start-date", "-s", help="Start date in DD-MM-YYYY format"
+    ),
+    end_date: str = typer.Option(
+        None, "--end-date", "-e", help="End date in DD-MM-YYYY format"
+    ),
+    output_file: str = typer.Option(
+        None, "--output", "-o", help="Name of the output file."
+    ),
+):
+    """
+    Exports your university schedule into a universal .ics calendar file. (no Google Calendar integration needed)
+    """
+    start_dt, end_dt = _parse_and_validate_dates(start_date, end_date)
     if not output_file:
         config: ConfigManager = ctx.obj[ContextEnum.CONFIG]
         output_file = config.exported_schedule_path
@@ -74,23 +86,7 @@ def sync(
     """
     Synchronises classes in Google Calendar in the specified range
     """
-    if not start_date:
-        start_dt = date.today()
-    else:
-        try:
-            start_dt = datetime.strptime(start_date, "%d-%m-%Y").date()
-        except ValueError:
-            raise typer.BadParameter("start_date must be in DD-MM-YYYY format")
-    if not end_date:
-        end_dt = start_dt + timedelta(days=14)
-    else:
-        try:
-            end_dt = datetime.strptime(end_date, "%d-%m-%Y").date()
-        except ValueError:
-            raise typer.BadParameter("end_date must be in DD-MM-YYYY format")
-
-    if start_dt > end_dt:
-        raise typer.BadParameter("start_date must be before or equal to end_date")
+    start_dt, end_dt = _parse_and_validate_dates(start_date, end_date)
 
     sync_command(start_dt, end_dt, ctx, console)
 
@@ -108,18 +104,9 @@ def delete(
     """
     Deletes Google Calendar events created by CampusScheduler in the specified range
     """
-    if not (start_date and end_date):
-        raise typer.BadParameter(
-            "Provide both --start-date and --end-date for range delete"
-        )
-    try:
-        start_dt = datetime.strptime(start_date, "%d-%m-%Y").date()
-        end_dt = datetime.strptime(end_date, "%d-%m-%Y").date()
-    except ValueError:
-        raise typer.BadParameter("Dates must be in DD-MM-YYYY format")
-
-    if start_dt > end_dt:
-        raise typer.BadParameter("start_date must be before or equal to end_date")
+    start_dt, end_dt = _parse_and_validate_dates(
+        start_date, end_date, default_dates=False
+    )
 
     delete_range_command(start_dt, end_dt, ctx, console)
 
@@ -127,7 +114,9 @@ def delete(
 @app.command()
 def config(
     ctx: typer.Context,
-    calendar: bool = typer.Option(True, help=""),
+    no_calendar: bool = typer.Option(
+        False, "--no-calendar", help="Skip Google Calendar setup for export-only usage."
+    ),
 ):
     """
     Guides the user through setting up CampusScheduler for the first time.
@@ -163,7 +152,7 @@ def config(
 
     calendar_id = "primary"
 
-    if calendar:
+    if not no_calendar:
         console.print("[u bold]Step 2: Google Calendar Authorization[/u bold]")
         with console.status(
             "Waiting for Google login in your browser...", spinner="earth"

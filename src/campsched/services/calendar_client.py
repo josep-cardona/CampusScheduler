@@ -113,15 +113,13 @@ class CalendarClient:
         Synchronizes a list of lectures with Google Calendar using a batch request.
         This is a full sync operation: it creates, updates, and deletes events as needed.
         """
-        if not self.console:
-            self.console = Console()  # Fallback if not provided
 
         if not isinstance(lectures, list):
             lectures = [lectures]
 
         if not lectures:
-            print(
-                "No lectures to sync. If you expected lectures, the scraper might have found none in the given range."
+            self.console.print(
+                "[red] No lectures to sync. If you expected lectures, the scraper might have found none in the given range.[/red]"
             )
             return
 

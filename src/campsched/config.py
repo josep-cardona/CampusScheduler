@@ -217,7 +217,7 @@ class ConfigManager:
 
         if missing_keys:
             raise ConfigurationError(
-                f'Google Cloud Client Secret file is missing required keys: {", ".join(missing_keys)}.\n Please delete "{self.token_path}" and configure it again.'
+                f'Google Cloud Client Secret file is missing required keys: {", ".join(missing_keys)}.\n Please delete "{self.client_secret_path}" and configure it again.'
             )
 
 

@@ -18,6 +18,7 @@ def parse_schedule_rows(
     classes: List[ScheduledLecture] = []
     current_day_element = None
 
+    skipped = 0
     for row in rows:
         row_classes = row["class"]
         if not row_classes or (
@@ -35,7 +36,7 @@ def parse_schedule_rows(
         class_time = row["event_time"]
         details = row["details"].split("\n")
         if len(details) < 3:
-            print(f"Skipping row with unexpected details: {details}")
+            skipped += 1
             continue
 
         # Parse course id and name
@@ -76,5 +77,10 @@ def parse_schedule_rows(
         else:
             raise ValueError(
                 "Lecture row encountered without a preceding day header (fc-list-day). Input data may be malformed."
+            )
+
+        if skipped:
+            print(
+                f"⚠️ Could not parse {skipped} classes due to unexpected format. They have been skipped."
             )
     return classes
