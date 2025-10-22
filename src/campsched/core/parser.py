@@ -79,8 +79,8 @@ def parse_schedule_rows(
                 "Lecture row encountered without a preceding day header (fc-list-day). Input data may be malformed."
             )
 
-        if skipped:
-            print(
-                f"⚠️ Could not parse {skipped} classes due to unexpected format. They have been skipped."
-            )
+    if skipped:
+        print(
+            f"⚠️ Could not parse {skipped} classes due to unexpected format. They have been skipped."
+        )
     return classes
