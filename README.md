@@ -24,7 +24,7 @@ Follow these steps to install and configure the tool.
 1.  **Python 3.10+**
 2.  **Google Cloud `client_secret.json` File**
     *   This is required only for Google Calendar synchronization. It allows the application to securely access the Google Calendar API on your behalf.
-    *   Please follow the **[Google API Credentials Setup Guide]()** to generate this file.
+    *   Please follow the **[Google API Credentials Setup Guide](/GOOGLE_API_GUIDE.md)** to generate this file.
 
 
 ### Installation
