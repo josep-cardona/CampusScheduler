@@ -267,7 +267,7 @@ class CalendarClient:
 
         except FileNotFoundError:
             self.console.print(
-                "\n[bold red]The 'client_secret.json' file was not found in the 'credentials' directory.[/bold red]"
+                "\n[bold red]The 'client_secret.json' file was not found.[/bold red]"
             )
             self.console.print(
                 f"Please follow the setup instructions in the README.md to obtain this file from the Google Cloud Console and place it in: {ConfigManager().config_dir}\n"
