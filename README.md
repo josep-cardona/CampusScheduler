@@ -16,6 +16,8 @@ This tool automates the process of transferring a student's class schedule from 
 *   **Efficient Syncing:** Uses batch API requests to perform all calendar operations in a single, efficient transaction.
 *   **User-Friendly CLI:** Built with Typer and Rich for a clean interface, progress bars, and clear feedback.
 
+**⚠️ Note:** CampusScheduler is intended **solely for personal use** by students to sync their own UPF schedules to Google Calendar or export them as `.ics` files. It contains no credentials or sensitive information. Users must comply with UPF policies when using the tool.
+
 
 ## Getting Started
 Follow these steps to install and configure the tool.
