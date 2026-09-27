@@ -1,4 +1,4 @@
-# CampusScheduler
+# CampusScheduler [DEPRECATED]
 
 A simple and powerful command-line tool to sync your UPF schedule directly to your Google Calendar or export it as a universal `.ics` file.
 
